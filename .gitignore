@@ -1,3 +1,4 @@
 .claude/
 sample/src/
 node_modules/
+.test/

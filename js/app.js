@@ -4,7 +4,7 @@ const { parseGerber, parseExcellon, LAYER_TYPES, detectFormat, detectType, build
 const $ = sel => document.querySelector(sel);
 
 const DEFAULT_HIDDEN = new Set(['top-paste', 'bottom-paste', 'inner-copper', 'other']);
-const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc|zip|step|stp|wrl|xls[xm]?|doc[x]?|md)$/i;
+const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc|step|stp|wrl|xls[xm]?|doc[x]?|md)$/i;
 
 const state = { layers: [], fileName: '' };
 
@@ -21,8 +21,9 @@ async function loadFiles(fileList) {
   try {
     const entries = [];
     for (const f of files) {
-      if (/\.zip$/i.test(f.name)) entries.push(...await readZip(await f.arrayBuffer()));
-      else entries.push({ name: f.name, text: await f.text() });
+      const data = new Uint8Array(await f.arrayBuffer());
+      if (archiveKind(data, f.name)) entries.push(...await readArchive(data, f.name));
+      else entries.push({ name: f.name, text: decodeText(data) });
     }
     state.fileName = files.length === 1 ? files[0].name : `${files.length}개 파일`;
     await buildLayers(entries);
@@ -34,23 +35,87 @@ async function loadFiles(fileList) {
   }
 }
 
-async function readZip(buf, depth = 0) {
-  if (!window.JSZip) throw new Error('ZIP 라이브러리(JSZip)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
-  const zip = await JSZip.loadAsync(buf);
+const ARCHIVE_EXT = /\.(zip|rar|7z|tar|tgz|tbz2?|txz|gz|bz2|xz|lzh|lha|cab|arj|iso)$/i;
+
+// Identify an archive by its signature, falling back to the file extension.
+function archiveKind(d, name) {
+  const at = (off, ...bytes) => bytes.every((b, i) => d[off + i] === b);
+  if (at(0, 0x50, 0x4b, 0x03, 0x04) || at(0, 0x50, 0x4b, 0x05, 0x06)) return 'zip';
+  if (at(0, 0x52, 0x61, 0x72, 0x21, 0x1a, 0x07)) return 'rar';
+  if (at(0, 0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c)) return '7z';
+  if (at(0, 0x1f, 0x8b) || at(0, 0x42, 0x5a, 0x68) || at(0, 0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00)) return 'compressed';
+  if (at(257, 0x75, 0x73, 0x74, 0x61, 0x72)) return 'tar';
+  if (at(0, 0x4d, 0x53, 0x43, 0x46)) return 'cab';
+  return ARCHIVE_EXT.test(name) ? 'other' : null;
+}
+
+// Returns [{ name, text }] for every non-archive file, descending into nested archives.
+async function readArchive(data, name, depth = 0) {
+  setBusy(`압축 해제 중: ${name.split('/').pop()}`);
+  const raw = archiveKind(data, name) === 'zip' ? await unzip(data) : await unarchive(data, name);
   const out = [];
-  for (const entry of Object.values(zip.files)) {
-    if (entry.dir) continue;
-    const name = entry.name;
-    if (/(^|\/)(__MACOSX|\.)/.test(name)) continue;
-    if (/\.zip$/i.test(name)) {
-      if (depth < 2) out.push(...await readZip(await entry.async('arraybuffer'), depth + 1));
+  for (const e of raw) {
+    if (/(^|\/)(__MACOSX|\.)/.test(e.name)) continue;
+    if (archiveKind(e.data, e.name)) {
+      if (depth < 3) out.push(...await readArchive(e.data, e.name, depth + 1));
       continue;
     }
-    if (SKIP_EXT.test(name)) continue;
-    out.push({ name, text: await entry.async('string') });
+    if (SKIP_EXT.test(e.name)) continue;
+    out.push({ name: e.name, text: decodeText(e.data) });
   }
   return out;
 }
+
+// ZIP via JSZip (works offline-from-disk too).
+async function unzip(data) {
+  if (!window.JSZip) throw new Error('ZIP 라이브러리(JSZip)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+  const zip = await JSZip.loadAsync(data);
+  const out = [];
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir) continue;
+    out.push({ name: entry.name, data: await entry.async('uint8array') });
+  }
+  return out;
+}
+
+// RAR / 7Z / TAR(.gz/.bz2/.xz) / CAB / LZH … via libarchive (WebAssembly), loaded on first use.
+let archiveLib = null;
+async function libarchive() {
+  if (!archiveLib) {
+    if (location.protocol === 'file:') {
+      throw new Error('RAR·7Z 등은 웹서버(GitHub Pages)에서 열어야 합니다. index.html을 로컬 파일로 열었을 때는 ZIP만 지원됩니다.');
+    }
+    const mod = await import(new URL('vendor/libarchive/libarchive.js', document.baseURI).href);
+    mod.Archive.init();
+    archiveLib = mod.Archive;
+  }
+  return archiveLib;
+}
+
+async function unarchive(data, name) {
+  const Archive = await libarchive();
+  const archive = await Archive.open(new File([data], name.split('/').pop()));
+  try {
+    if (await archive.hasEncryptedData()) {
+      const pw = prompt(`"${name.split('/').pop()}" 압축파일의 암호를 입력하세요.`);
+      if (pw == null) throw new Error('암호가 입력되지 않았습니다.');
+      await archive.usePassword(pw);
+    }
+    const files = [];
+    const walk = (node, prefix) => {
+      for (const [k, v] of Object.entries(node)) {
+        if (v instanceof File) files.push({ name: prefix + k, file: v });
+        else if (v && typeof v === 'object') walk(v, prefix + k + '/');
+      }
+    };
+    walk(await archive.extractFiles(), '');
+    return Promise.all(files.map(async f => ({ name: f.name, data: new Uint8Array(await f.file.arrayBuffer()) })));
+  } finally {
+    archive.close();
+  }
+}
+
+function decodeText(data) { return new TextDecoder('utf-8').decode(data); }
 
 async function buildLayers(entries) {
   const layers = [];
@@ -180,7 +245,7 @@ $('#sampleBtn').addEventListener('click', async () => {
   try {
     const res = await fetch('sample/sample-board.zip');
     if (!res.ok) throw new Error(res.statusText);
-    const entries = await readZip(await res.arrayBuffer());
+    const entries = await readArchive(new Uint8Array(await res.arrayBuffer()), 'sample-board.zip');
     state.fileName = 'sample-board.zip';
     await buildLayers(entries);
   } catch (e) {

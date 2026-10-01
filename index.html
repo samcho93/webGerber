@@ -16,10 +16,10 @@
     </div>
 
     <div class="actions">
-      <label class="btn primary" title="ZIP 파일 열기">
-        <input id="fileInput" type="file" accept=".zip,.gbr,.ger,.gtl,.gbl,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.gko,.gm1,.drl,.xln,.txt,.cmp,.sol,.stc,.sts,.plc,.pls,.g1,.g2,.g3,.g4" multiple hidden>
+      <label class="btn primary" title="압축파일(ZIP·RAR·7Z·TAR) 또는 거버 파일 열기">
+        <input id="fileInput" type="file" accept=".zip,.rar,.7z,.tar,.tgz,.gz,.tbz2,.bz2,.txz,.xz,.lzh,.cab,.gbr,.ger,.gtl,.gbl,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.gko,.gm1,.drl,.xln,.txt,.cmp,.sol,.stc,.sts,.plc,.pls,.g1,.g2,.g3,.g4" multiple hidden>
         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        ZIP 열기
+        파일 열기
       </label>
       <button id="sampleBtn" class="btn">샘플 보기</button>
     </div>
@@ -53,7 +53,7 @@
         </div>
       </div>
       <div id="layerList" class="layer-list">
-        <p class="empty">ZIP 파일을 열면 레이어 목록이 표시됩니다.</p>
+        <p class="empty">압축파일을 열면 레이어 목록이 표시됩니다.</p>
       </div>
     </aside>
 
@@ -62,8 +62,8 @@
       <div id="drop" class="drop">
         <div class="drop-card">
           <svg viewBox="0 0 24 24" width="40" height="40"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <strong>거버 ZIP 파일을 여기에 끌어다 놓으세요</strong>
-          <span>또는 클릭하여 파일 선택 · Gerber RS-274X / Excellon 드릴 지원</span>
+          <strong>거버 압축파일을 여기에 끌어다 놓으세요</strong>
+          <span>또는 클릭하여 파일 선택<br>ZIP · RAR · 7Z · TAR(.gz/.bz2/.xz) · Gerber RS-274X / Excellon 드릴</span>
         </div>
       </div>
       <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyText">불러오는 중…</span></div>
