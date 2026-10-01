@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webGerber — PCB Gerber Viewer</title>
+  <meta name="description" content="ZIP으로 압축된 PCB 거버 데이터를 브라우저에서 바로 보는 뷰어">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='5' width='28' height='22' rx='3' fill='%2314612f'/%3E%3Ccircle cx='9' cy='12' r='2.5' fill='%23d8b158'/%3E%3Ccircle cx='23' cy='20' r='2.5' fill='%23d8b158'/%3E%3Cpath d='M9 12h7l7 8' stroke='%23d8b158' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect x="2" y="5" width="28" height="22" rx="3" fill="#14612f"/><circle cx="9" cy="12" r="2.5" fill="#d8b158"/><circle cx="23" cy="20" r="2.5" fill="#d8b158"/><path d="M9 12h7l7 8" stroke="#d8b158" stroke-width="1.6" fill="none"/></svg>
+      <span>webGerber</span>
+    </div>
+
+    <div class="actions">
+      <label class="btn primary" title="ZIP 파일 열기">
+        <input id="fileInput" type="file" accept=".zip,.gbr,.ger,.gtl,.gbl,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.gko,.gm1,.drl,.xln,.txt,.cmp,.sol,.stc,.sts,.plc,.pls,.g1,.g2,.g3,.g4" multiple hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        ZIP 열기
+      </label>
+      <button id="sampleBtn" class="btn">샘플 보기</button>
+    </div>
+
+    <div class="seg" id="viewSeg" role="group" aria-label="보기">
+      <button data-view="split" class="on">TOP + BOTTOM</button>
+      <button data-view="top">TOP</button>
+      <button data-view="bottom">BOTTOM</button>
+    </div>
+
+    <div class="seg" id="modeSeg" role="group" aria-label="표시 방식">
+      <button data-mode="real" class="on">실사</button>
+      <button data-mode="layer">레이어 색상</button>
+    </div>
+
+    <div class="zoom">
+      <button id="zoomOut" class="btn icon" title="축소 (-)">−</button>
+      <span id="zoomLabel">100%</span>
+      <button id="zoomIn" class="btn icon" title="확대 (+)">+</button>
+      <button id="zoomFit" class="btn" title="화면 맞춤 (0 / 더블클릭)">맞춤</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-head">
+        <h2>레이어</h2>
+        <div class="side-tools">
+          <button id="allOn" class="link">모두 표시</button>
+          <button id="allOff" class="link">모두 숨김</button>
+        </div>
+      </div>
+      <div id="layerList" class="layer-list">
+        <p class="empty">ZIP 파일을 열면 레이어 목록이 표시됩니다.</p>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <div id="panels" class="panels"></div>
+      <div id="drop" class="drop">
+        <div class="drop-card">
+          <svg viewBox="0 0 24 24" width="40" height="40"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <strong>거버 ZIP 파일을 여기에 끌어다 놓으세요</strong>
+          <span>또는 클릭하여 파일 선택 · Gerber RS-274X / Excellon 드릴 지원</span>
+        </div>
+      </div>
+      <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyText">불러오는 중…</span></div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="stFile">파일 없음</span>
+    <span id="stSize"></span>
+    <span id="stCursor" class="mono"></span>
+    <span class="hint">휠: 확대/축소 · 드래그: 이동 · 더블클릭: 맞춤</span>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
