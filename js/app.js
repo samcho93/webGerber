@@ -9,7 +9,6 @@ const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc
 const ui = {
   dual: false,            // two boards side by side
   view: 'split',          // TOP + BOTTOM | TOP | BOTTOM
-  linked: true,           // TOP and BOTTOM panels pan/zoom together
   active: null,           // Workspace shown in the sidebar
 };
 
@@ -20,6 +19,7 @@ class Workspace {
     this.tag = 'AB'[index];
     this.layers = [];
     this.fileName = '';
+    this.linked = true;     // this screen's TOP and BOTTOM pan/zoom together
     this.el = $('#slotTpl').content.firstElementChild.cloneNode(true);
     this.el.querySelector('.slot-tag').textContent = this.tag;
     $('#slots').appendChild(this.el);
@@ -33,6 +33,21 @@ class Workspace {
     this.el.querySelector('.drop').addEventListener('click', () => { activate(this); openPicker(); });
     this.el.querySelector('.slot-open').addEventListener('click', () => { activate(this); openPicker(); });
     this.el.querySelector('.slot-sample').addEventListener('click', () => { activate(this); this.loadSample(); });
+    this.el.querySelector('.slot-link').addEventListener('click', () => this.setLinked(!this.linked));
+  }
+
+  // Link / unlink this screen's TOP and BOTTOM panels and reflect it on its buttons
+  // (the slot's own button, plus the header button for screen A in single mode).
+  setLinked(on) {
+    this.linked = on;
+    this.viewer.setLinked(on);
+    const btns = [this.el.querySelector('.slot-link')];
+    if (this.index === 0) btns.push($('#linkBtn'));
+    for (const b of btns) {
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+      b.querySelector('span').textContent = on ? 'TOP·BOTTOM 연동' : 'TOP·BOTTOM 독립';
+    }
   }
 
   busy(text) {
@@ -231,6 +246,7 @@ function setLayout(dual) {
   $('#slots').classList.toggle('dual', dual);
   spaces[1].el.hidden = !dual;
   $('#wsTabs').hidden = !dual;
+  $('#linkBtn').hidden = dual;   // in compare mode each screen has its own link button
   arrange();
   if (!dual) activate(spaces[0]);
   // re-fit loaded boards to their new slot size (each screen pans/zooms independently)
@@ -361,17 +377,11 @@ segment('#viewSeg', 'view', v => {
   ui.view = v;
   arrange();
   for (const w of spaces) w.viewer.setView(v);
-  $('#linkBtn').disabled = v !== 'split';   // only meaningful with both panels shown
+  // linking only matters while both panels are shown
+  document.querySelectorAll('#linkBtn, .slot-link').forEach(b => { b.disabled = v !== 'split'; });
 });
 
-$('#linkBtn').addEventListener('click', () => {
-  ui.linked = !ui.linked;
-  const b = $('#linkBtn');
-  b.classList.toggle('on', ui.linked);
-  b.setAttribute('aria-pressed', ui.linked);
-  b.querySelector('span').textContent = ui.linked ? 'TOP·BOTTOM 연동' : 'TOP·BOTTOM 독립';
-  for (const w of spaces) w.viewer.setLinked(ui.linked);
-});
+$('#linkBtn').addEventListener('click', () => spaces[0].setLinked(!spaces[0].linked));
 segment('#modeSeg', 'mode', m => spaces.forEach(w => w.viewer.setMode(m)));
 
 $('#wsTabs').addEventListener('click', e => {
