@@ -53,6 +53,10 @@ button { font: inherit; color: inherit; }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: #24402e; color: #fff; }
 
+.sync { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+.sync[hidden] { display: none; }
+.sync input { accent-color: var(--accent); margin: 0; }
+
 .zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 #zoomLabel { min-width: 52px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 
@@ -62,6 +66,16 @@ button { font: inherit; color: inherit; }
   background: var(--panel); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; min-height: 0;
 }
+.ws-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 10px 0; }
+.ws-tabs[hidden] { display: none; }
+.ws-tabs button {
+  display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; color: var(--muted);
+}
+.ws-tabs button b { color: var(--text); }
+.ws-tabs button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.ws-tabs button.on { border-color: var(--accent); background: #24402e; color: var(--text); }
+
 .side-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 8px; }
 .side-head h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .side-tools { display: flex; gap: 10px; }
@@ -97,7 +111,29 @@ button { font: inherit; color: inherit; }
 
 /* ---------- stage ---------- */
 .stage { position: relative; min-width: 0; min-height: 0; background: #14171c; }
-.panels { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+/* one slot per loaded board; two slots in compare mode */
+.slots { position: absolute; inset: 0; display: grid; gap: 2px; background: var(--line); }
+.slots.dual.rows { grid-template-rows: 1fr 1fr; }
+.slots.dual.cols { grid-template-columns: 1fr 1fr; }
+.slot { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #14171c; }
+.slot[hidden] { display: none; }
+.slot-head {
+  display: none; align-items: center; gap: 8px; height: 34px; flex: none;
+  padding: 0 8px 0 10px; background: var(--panel); border-bottom: 2px solid transparent;
+}
+.slots.dual .slot-head { display: flex; }
+.slots.dual .slot.active .slot-head { border-bottom-color: var(--accent); }
+.slot-tag {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 4px;
+  background: #2a313b; font-weight: 700; font-size: 12px;
+}
+.slot.active .slot-tag { background: var(--accent); color: #fff; }
+.slot-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.slot.active .slot-name { color: var(--text); }
+.btn.small { height: 24px; padding: 0 9px; font-size: 12px; }
+.slots.dual .slot .drop, .slots.dual .slot .busy { top: 34px; }
+
+.panels { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
 .panels[data-view=top], .panels[data-view=bottom] { grid-template-columns: 1fr; }
 .panel { position: relative; background: #14171c; min-width: 0; min-height: 0; }
 .panel[hidden] { display: none; }
@@ -146,9 +182,11 @@ button { font: inherit; color: inherit; }
   :root { --side-w: 100%; }
   body { overflow: auto; }
   .layout { grid-template-columns: 1fr; grid-template-rows: 60vh auto; }
+  body.dual .layout { grid-template-rows: 92vh auto; }
   .stage { order: -1; }
   .sidebar { border-right: 0; border-top: 1px solid var(--line); }
-  .panels:not([data-view=top]):not([data-view=bottom]) { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .slots.dual.cols { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .slots:not(.dual) .panels:not([data-view=top]):not([data-view=bottom]) { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   .zoom { margin-left: 0; }
   .statusbar .hint, #stSize { display: none; }
   .topbar { padding: 8px 16px; }

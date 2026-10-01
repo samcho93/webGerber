@@ -24,6 +24,14 @@
       <button id="sampleBtn" class="btn">샘플 보기</button>
     </div>
 
+    <div class="seg" id="layoutSeg" role="group" aria-label="화면 분할">
+      <button data-layout="single" class="on" title="거버 1개 보기">1개</button>
+      <button data-layout="dual" title="화면을 나눠 거버 2개를 함께 보기">2개 비교</button>
+    </div>
+    <label class="sync" id="syncWrap" hidden title="A·B의 이동/확대를 함께 움직임">
+      <input type="checkbox" id="syncView" checked> 보기 동기화
+    </label>
+
     <div class="seg" id="viewSeg" role="group" aria-label="보기">
       <button data-view="split" class="on">TOP + BOTTOM</button>
       <button data-view="top">TOP</button>
@@ -45,6 +53,10 @@
 
   <main class="layout">
     <aside class="sidebar" id="sidebar">
+      <div class="ws-tabs" id="wsTabs" hidden>
+        <button data-ws="0" class="on"><b>A</b><span>파일 없음</span></button>
+        <button data-ws="1"><b>B</b><span>파일 없음</span></button>
+      </div>
       <div class="side-head">
         <h2>레이어</h2>
         <div class="side-tools">
@@ -58,16 +70,28 @@
     </aside>
 
     <section class="stage">
-      <div id="panels" class="panels"></div>
-      <div id="drop" class="drop">
-        <div class="drop-card">
-          <svg viewBox="0 0 24 24" width="40" height="40"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <strong>거버 압축파일을 여기에 끌어다 놓으세요</strong>
-          <span>또는 클릭하여 파일 선택<br>ZIP · RAR · 7Z · TAR(.gz/.bz2/.xz) · Gerber RS-274X / Excellon 드릴</span>
-        </div>
-      </div>
-      <div id="busy" class="busy" hidden><div class="spinner"></div><span id="busyText">불러오는 중…</span></div>
+      <div id="slots" class="slots"></div>
     </section>
+
+    <template id="slotTpl">
+      <div class="slot">
+        <div class="slot-head">
+          <span class="slot-tag"></span>
+          <span class="slot-name">파일 없음</span>
+          <button class="btn small slot-open" title="이 화면에 파일 열기">열기</button>
+          <button class="btn small slot-sample" title="이 화면에 샘플 열기">샘플</button>
+        </div>
+        <div class="panels"></div>
+        <div class="drop">
+          <div class="drop-card">
+            <svg viewBox="0 0 24 24" width="40" height="40"><path d="M4 20h16M12 4v12m0-12 5 5m-5-5L7 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <strong>거버 압축파일을 여기에 끌어다 놓으세요</strong>
+            <span>또는 클릭하여 파일 선택<br>ZIP · RAR · 7Z · TAR(.gz/.bz2/.xz) · Gerber RS-274X / Excellon 드릴</span>
+          </div>
+        </div>
+        <div class="busy" hidden><div class="spinner"></div><span class="busy-text">불러오는 중…</span></div>
+      </div>
+    </template>
   </main>
 
   <footer class="statusbar">

@@ -6,35 +6,142 @@ const $ = sel => document.querySelector(sel);
 const DEFAULT_HIDDEN = new Set(['top-paste', 'bottom-paste', 'inner-copper', 'other']);
 const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc|step|stp|wrl|xls[xm]?|doc[x]?|md)$/i;
 
-const state = { layers: [], fileName: '' };
+const ui = {
+  dual: false,            // two boards side by side
+  sync: true,             // link pan/zoom between A and B
+  view: 'split',          // TOP + BOTTOM | TOP | BOTTOM
+  active: null,           // Workspace shown in the sidebar
+};
 
-const viewer = new Viewer($('#panels'), {
-  onCursor: (x, y) => { $('#stCursor').textContent = `X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`; },
-  onZoom: z => { $('#zoomLabel').textContent = `${Math.round(z * 100)}%`; },
-});
+// ---------- workspace: one loaded board in one screen slot ----------
+class Workspace {
+  constructor(index) {
+    this.index = index;
+    this.tag = 'AB'[index];
+    this.layers = [];
+    this.fileName = '';
+    this.el = $('#slotTpl').content.firstElementChild.cloneNode(true);
+    this.el.querySelector('.slot-tag').textContent = this.tag;
+    $('#slots').appendChild(this.el);
 
-// ---------- loading ----------
-async function loadFiles(fileList) {
-  const files = [...fileList];
-  if (!files.length) return;
-  setBusy('불러오는 중…');
-  try {
-    const entries = [];
-    for (const f of files) {
-      const data = new Uint8Array(await f.arrayBuffer());
-      if (archiveKind(data, f.name)) entries.push(...await readArchive(data, f.name));
-      else entries.push({ name: f.name, text: decodeText(data) });
+    this.viewer = new Viewer(this.el.querySelector('.panels'), {
+      onCursor: (x, y) => { $('#stCursor').textContent = `${ui.dual ? this.tag + '  ' : ''}X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`; },
+      onZoom: z => { this.zoom = z; if (ui.active === this) $('#zoomLabel').textContent = `${Math.round(z * 100)}%`; },
+      onViewChange: v => syncFrom(this, v),
+    });
+    this.viewer.requestFit = () => fitBoards(this);
+
+    this.el.addEventListener('pointerdown', () => activate(this), true);
+    this.el.querySelector('.drop').addEventListener('click', () => { activate(this); openPicker(); });
+    this.el.querySelector('.slot-open').addEventListener('click', () => { activate(this); openPicker(); });
+    this.el.querySelector('.slot-sample').addEventListener('click', () => { activate(this); this.loadSample(); });
+  }
+
+  busy(text) {
+    this.el.querySelector('.busy').hidden = !text;
+    if (text) this.el.querySelector('.busy-text').textContent = text;
+  }
+
+  async loadFiles(fileList) {
+    const files = [...fileList];
+    if (!files.length) return;
+    const busy = t => this.busy(t);
+    busy('불러오는 중…');
+    try {
+      const entries = [];
+      for (const f of files) {
+        const data = new Uint8Array(await f.arrayBuffer());
+        if (archiveKind(data, f.name)) entries.push(...await readArchive(data, f.name, busy));
+        else entries.push({ name: f.name, text: decodeText(data) });
+      }
+      await this.buildLayers(entries, files.length === 1 ? files[0].name : `${files.length}개 파일`);
+    } catch (e) {
+      console.error(e);
+      alert(`${ui.dual ? `[${this.tag}] ` : ''}파일을 읽을 수 없습니다: ` + e.message);
+    } finally {
+      busy(null);
     }
-    state.fileName = files.length === 1 ? files[0].name : `${files.length}개 파일`;
-    await buildLayers(entries);
-  } catch (e) {
-    console.error(e);
-    alert('파일을 읽을 수 없습니다: ' + e.message);
-  } finally {
-    setBusy(null);
+  }
+
+  async loadSample() {
+    const busy = t => this.busy(t);
+    busy('샘플 불러오는 중…');
+    try {
+      const res = await fetch('sample/sample-board.zip');
+      if (!res.ok) throw new Error(res.statusText);
+      const entries = await readArchive(new Uint8Array(await res.arrayBuffer()), 'sample-board.zip', busy);
+      await this.buildLayers(entries, 'sample-board.zip');
+    } catch (e) {
+      alert('샘플을 불러오지 못했습니다: ' + e.message + (location.protocol === 'file:' ? ' (로컬 파일로 열면 샘플은 지원되지 않습니다. 파일 열기를 사용하세요.)' : ''));
+    } finally {
+      busy(null);
+    }
+  }
+
+  async buildLayers(entries, fileName) {
+    const layers = [];
+    let id = 0;
+    for (const { name, text } of entries) {
+      const format = detectFormat(name, text);
+      if (!format) continue;
+      const type = detectType(name, text, format);
+      layers.push({ id: id++, name: name.split('/').pop(), path: name, text, format, type, visible: !DEFAULT_HIDDEN.has(type), color: null, data: null, error: null });
+    }
+    if (!layers.length) throw new Error('거버 / 드릴 파일을 찾지 못했습니다.');
+
+    layers.sort((a, b) => LAYER_TYPES[a.type].order - LAYER_TYPES[b.type].order || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    let inner = 0;
+    for (const l of layers) {
+      l.color = l.type === 'inner-copper' ? innerColor(inner++) : LAYER_TYPES[l.type].color;
+      this.busy(`해석 중: ${l.name}`);
+      await new Promise(r => setTimeout(r, 0));
+      parseLayer(l);
+    }
+    this.layers = layers;
+    this.fileName = fileName;
+    this.el.querySelector('.drop').classList.add('hide');
+    this.el.querySelector('.slot-name').textContent = fileName;
+    this.el.querySelector('.slot-name').title = fileName;
+    this.refresh(true);
+  }
+
+  refresh(fit) {
+    const layers = this.layers;
+    const outline = layers.find(l => l.type === 'outline' && l.data && l.data.segments);
+    const board = outline ? buildBoardShape(outline.data.segments) : null;
+    const bounds = unionBounds(layers.filter(l => l.data && l.type !== 'other').map(l => l.data.bounds));
+    this.boardBounds = board ? board.bounds : bounds;
+    if (fit) {
+      this.suppressSync = true;   // don't push this board's fit onto the other one
+      this.viewer.setData(layers, board, bounds);
+      this.suppressSync = false;
+      // With both boards loaded and sync on, align them; boards that don't overlap
+      // at all are different projects, so sync is switched off instead.
+      const other = otherOf(this);
+      if (ui.dual && ui.sync && other.layers.length) {
+        if (overlaps(this.boardBounds, other.boardBounds)) fitBoards(this);
+        else setSync(false);
+      }
+    } else {
+      Object.assign(this.viewer, { layers, board, bounds });
+      this.viewer.draw();
+    }
+    if (ui.active === this) updateSidebar();
   }
 }
 
+function parseLayer(l) {
+  try {
+    l.data = l.format === 'drill' ? parseExcellon(l.text) : parseGerber(l.text, { keepSegments: l.type === 'outline' });
+    l.error = null;
+  } catch (e) {
+    console.error(l.name, e);
+    l.data = null;
+    l.error = e.message;
+  }
+}
+
+// ---------- archives ----------
 const ARCHIVE_EXT = /\.(zip|rar|7z|tar|tgz|tbz2?|txz|gz|bz2|xz|lzh|lha|cab|arj|iso)$/i;
 
 // Identify an archive by its signature, falling back to the file extension.
@@ -50,14 +157,14 @@ function archiveKind(d, name) {
 }
 
 // Returns [{ name, text }] for every non-archive file, descending into nested archives.
-async function readArchive(data, name, depth = 0) {
-  setBusy(`압축 해제 중: ${name.split('/').pop()}`);
+async function readArchive(data, name, busy, depth = 0) {
+  busy(`압축 해제 중: ${name.split('/').pop()}`);
   const raw = archiveKind(data, name) === 'zip' ? await unzip(data) : await unarchive(data, name);
   const out = [];
   for (const e of raw) {
     if (/(^|\/)(__MACOSX|\.)/.test(e.name)) continue;
     if (archiveKind(e.data, e.name)) {
-      if (depth < 3) out.push(...await readArchive(e.data, e.name, depth + 1));
+      if (depth < 3) out.push(...await readArchive(e.data, e.name, busy, depth + 1));
       continue;
     }
     if (SKIP_EXT.test(e.name)) continue;
@@ -117,54 +224,69 @@ async function unarchive(data, name) {
 
 function decodeText(data) { return new TextDecoder('utf-8').decode(data); }
 
-async function buildLayers(entries) {
-  const layers = [];
-  let id = 0;
-  for (const { name, text } of entries) {
-    const format = detectFormat(name, text);
-    if (!format) continue;
-    const type = detectType(name, text, format);
-    layers.push({ id: id++, name: name.split('/').pop(), path: name, text, format, type, visible: !DEFAULT_HIDDEN.has(type), color: null, data: null, error: null });
-  }
-  if (!layers.length) throw new Error('거버 / 드릴 파일을 찾지 못했습니다.');
 
-  layers.sort((a, b) => LAYER_TYPES[a.type].order - LAYER_TYPES[b.type].order || a.name.localeCompare(b.name, undefined, { numeric: true }));
-  let inner = 0;
-  for (const l of layers) {
-    l.color = l.type === 'inner-copper' ? innerColor(inner++) : LAYER_TYPES[l.type].color;
-    setBusy(`해석 중: ${l.name}`);
-    await new Promise(r => setTimeout(r, 0));
-    parseLayer(l);
-  }
-  state.layers = layers;
-  $('#drop').classList.add('hide');
-  refresh(true);
+// ---------- workspaces / layout ----------
+const spaces = [new Workspace(0), new Workspace(1)];
+const otherOf = ws => spaces[1 - ws.index];
+
+function syncFrom(ws, v) {
+  if (!ui.dual || !ui.sync || ws.suppressSync) return;
+  const o = otherOf(ws);
+  if (o.layers.length) o.viewer.setViewState(v);
 }
 
-function parseLayer(l) {
-  try {
-    l.data = l.format === 'drill' ? parseExcellon(l.text) : parseGerber(l.text, { keepSegments: l.type === 'outline' });
-    l.error = null;
-  } catch (e) {
-    console.error(l.name, e);
-    l.data = null;
-    l.error = e.message;
+function bothLoaded() { return spaces.every(w => w.layers.length); }
+
+function overlaps(a, b) {
+  return a && b && a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+}
+
+// Fit: synced pair → both to the union of the two boards at one scale; otherwise just ws.
+function fitBoards(ws) {
+  if (ui.dual && ui.sync && bothLoaded()) {
+    const u = unionBounds(spaces.map(w => w.boardBounds));
+    for (const w of spaces) { w.suppressSync = true; w.viewer.fit(u); w.suppressSync = false; }
+    syncFrom(ws, ws.viewer);   // slots can differ by a pixel; make the views identical
+  } else {
+    ws.viewer.fit();
   }
 }
 
-// ---------- board / view ----------
-function refresh(fit) {
-  const layers = state.layers;
-  const outline = layers.find(l => l.type === 'outline' && l.data && l.data.segments);
-  const board = outline ? buildBoardShape(outline.data.segments) : null;
-  const bounds = unionBounds(layers.filter(l => l.data && l.type !== 'other').map(l => l.data.bounds));
-  if (fit) viewer.setData(layers, board, bounds);
-  else { viewer.layers = layers; viewer.board = board; viewer.bounds = bounds; viewer.draw(); }
+function setSync(on) {
+  ui.sync = on;
+  $('#syncView').checked = on;
+  if (on && ui.active.layers.length) fitBoards(ui.active);
+}
 
-  const b = board ? board.bounds : bounds;
-  $('#stFile').textContent = `${state.fileName} · ${layers.length} 레이어`;
-  $('#stSize').textContent = isFinite(b.minX) ? `보드 ${(b.maxX - b.minX).toFixed(2)} × ${(b.maxY - b.minY).toFixed(2)} mm` : '';
-  renderLayerList();
+function activate(ws) {
+  if (ui.active === ws) return;
+  ui.active = ws;
+  for (const w of spaces) w.el.classList.toggle('active', w === ws);
+  $('#zoomLabel').textContent = `${Math.round((ws.zoom || 1) * 100)}%`;
+  updateSidebar();
+}
+
+function setLayout(dual) {
+  ui.dual = dual;
+  document.body.classList.toggle('dual', dual);
+  $('#slots').classList.toggle('dual', dual);
+  spaces[1].el.hidden = !dual;
+  $('#wsTabs').hidden = !dual;
+  $('#syncWrap').hidden = !dual;
+  arrange();
+  if (!dual) activate(spaces[0]);
+  // re-fit loaded boards to their new slot size
+  requestAnimationFrame(() => {
+    if (dual && ui.sync && bothLoaded()) fitBoards(ui.active);
+    else for (const w of spaces) if (w.layers.length) { w.suppressSync = true; w.viewer.fit(); w.suppressSync = false; }
+  });
+  updateSidebar();
+}
+
+// TOP+BOTTOM view → stack boards as rows (A above B); single-side view → columns.
+function arrange() {
+  $('#slots').classList.toggle('rows', ui.view === 'split');
+  $('#slots').classList.toggle('cols', ui.view !== 'split');
 }
 
 // ---------- sidebar ----------
@@ -176,21 +298,38 @@ const GROUPS = [
   ['기타', t => t === 'other'],
 ];
 
-function renderLayerList() {
+function updateSidebar() {
+  const ws = ui.active;
+  // tabs
+  $('#wsTabs').querySelectorAll('button').forEach((b, i) => {
+    b.classList.toggle('on', spaces[i] === ws);
+    b.querySelector('span').textContent = spaces[i].fileName || '파일 없음';
+    b.title = spaces[i].fileName || '';
+  });
+  // status bar
+  const b = ws.boardBounds;
+  const prefix = ui.dual ? `[${ws.tag}] ` : '';
+  $('#stFile').textContent = ws.layers.length ? `${prefix}${ws.fileName} · ${ws.layers.length} 레이어` : `${prefix}파일 없음`;
+  $('#stSize').textContent = b && isFinite(b.minX) ? `보드 ${(b.maxX - b.minX).toFixed(2)} × ${(b.maxY - b.minY).toFixed(2)} mm` : '';
+  // layer list
   const list = $('#layerList');
   list.innerHTML = '';
+  if (!ws.layers.length) {
+    list.innerHTML = `<p class="empty">${ui.dual ? `${ws.tag} 화면에 ` : ''}압축파일을 열면 레이어 목록이 표시됩니다.</p>`;
+    return;
+  }
   for (const [title, test] of GROUPS) {
-    const items = state.layers.filter(l => test(l.type));
+    const items = ws.layers.filter(l => test(l.type));
     if (!items.length) continue;
     const h = document.createElement('div');
     h.className = 'group-title';
     h.textContent = title;
     list.appendChild(h);
-    for (const l of items) list.appendChild(layerRow(l));
+    for (const l of items) list.appendChild(layerRow(ws, l));
   }
 }
 
-function layerRow(l) {
+function layerRow(ws, l) {
   const row = document.createElement('label');
   row.className = 'layer' + (l.error ? ' err' : '');
   row.title = l.error ? `오류: ${l.error}` : l.path;
@@ -198,13 +337,13 @@ function layerRow(l) {
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = l.visible;
-  cb.addEventListener('change', () => { l.visible = cb.checked; viewer.draw(); });
+  cb.addEventListener('change', () => { l.visible = cb.checked; ws.viewer.draw(); });
 
   const color = document.createElement('input');
   color.type = 'color';
   color.value = l.color;
   color.title = '레이어 색상 (레이어 색상 모드)';
-  color.addEventListener('input', () => { l.color = color.value; viewer.draw(); });
+  color.addEventListener('input', () => { l.color = color.value; ws.viewer.draw(); });
 
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -223,7 +362,7 @@ function layerRow(l) {
     l.type = sel.value;
     l.color = l.type === 'inner-copper' ? innerColor(l.id) : LAYER_TYPES[l.type].color;
     if (l.format === 'gerber' && l.type === 'outline' && !(l.data && l.data.segments)) parseLayer(l);
-    refresh(false);
+    ws.refresh(false);
   });
   meta.append(name, sel);
 
@@ -232,28 +371,10 @@ function layerRow(l) {
 }
 
 // ---------- UI wiring ----------
-function setBusy(text) {
-  $('#busy').hidden = !text;
-  if (text) $('#busyText').textContent = text;
-}
+function openPicker() { $('#fileInput').click(); }
 
-$('#fileInput').addEventListener('change', e => { loadFiles(e.target.files); e.target.value = ''; });
-$('#drop').addEventListener('click', () => $('#fileInput').click());
-
-$('#sampleBtn').addEventListener('click', async () => {
-  setBusy('샘플 불러오는 중…');
-  try {
-    const res = await fetch('sample/sample-board.zip');
-    if (!res.ok) throw new Error(res.statusText);
-    const entries = await readArchive(new Uint8Array(await res.arrayBuffer()), 'sample-board.zip');
-    state.fileName = 'sample-board.zip';
-    await buildLayers(entries);
-  } catch (e) {
-    alert('샘플을 불러오지 못했습니다: ' + e.message + (location.protocol === 'file:' ? ' (로컬 파일로 열면 샘플은 지원되지 않습니다. ZIP 열기를 사용하세요.)' : ''));
-  } finally {
-    setBusy(null);
-  }
-});
+$('#fileInput').addEventListener('change', e => { ui.active.loadFiles(e.target.files); e.target.value = ''; });
+$('#sampleBtn').addEventListener('click', () => ui.active.loadSample());
 
 let dragDepth = 0;
 window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
@@ -263,7 +384,12 @@ window.addEventListener('drop', e => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('dragging');
-  if (e.dataTransfer?.files?.length) loadFiles(e.dataTransfer.files);
+  if (!e.dataTransfer?.files?.length) return;
+  // dropped on a slot → load there; elsewhere → the active one
+  const slot = e.target.closest?.('.slot');
+  const ws = spaces.find(w => w.el === slot) || ui.active;
+  activate(ws);
+  ws.loadFiles(e.dataTransfer.files);
 });
 
 function segment(id, attr, fn) {
@@ -275,19 +401,34 @@ function segment(id, attr, fn) {
     fn(b.dataset[attr]);
   });
 }
-segment('#viewSeg', 'view', v => viewer.setView(v));
-segment('#modeSeg', 'mode', m => viewer.setMode(m));
+segment('#layoutSeg', 'layout', l => setLayout(l === 'dual'));
+segment('#viewSeg', 'view', v => {
+  ui.view = v;
+  arrange();
+  for (const w of spaces) w.viewer.setView(v);
+});
+segment('#modeSeg', 'mode', m => spaces.forEach(w => w.viewer.setMode(m)));
 
-$('#zoomIn').addEventListener('click', () => viewer.zoomBy(1.25));
-$('#zoomOut').addEventListener('click', () => viewer.zoomBy(0.8));
-$('#zoomFit').addEventListener('click', () => viewer.fit());
-$('#allOn').addEventListener('click', () => { state.layers.forEach(l => l.visible = true); renderLayerList(); viewer.draw(); });
-$('#allOff').addEventListener('click', () => { state.layers.forEach(l => l.visible = false); renderLayerList(); viewer.draw(); });
+$('#wsTabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) activate(spaces[+b.dataset.ws]);
+});
+$('#syncView').addEventListener('change', e => setSync(e.target.checked));
+
+const act = () => ui.active.viewer;
+$('#zoomIn').addEventListener('click', () => act().zoomBy(1.25));
+$('#zoomOut').addEventListener('click', () => act().zoomBy(0.8));
+$('#zoomFit').addEventListener('click', () => fitBoards(ui.active));
+$('#allOn').addEventListener('click', () => { ui.active.layers.forEach(l => l.visible = true); updateSidebar(); act().draw(); });
+$('#allOff').addEventListener('click', () => { ui.active.layers.forEach(l => l.visible = false); updateSidebar(); act().draw(); });
 
 window.addEventListener('keydown', e => {
   if (e.target.closest('input, select, textarea')) return;
-  if (e.key === '+' || e.key === '=') viewer.zoomBy(1.25);
-  else if (e.key === '-' || e.key === '_') viewer.zoomBy(0.8);
-  else if (e.key === '0' || e.key === 'f' || e.key === 'F') viewer.fit();
+  if (e.key === '+' || e.key === '=') act().zoomBy(1.25);
+  else if (e.key === '-' || e.key === '_') act().zoomBy(0.8);
+  else if (e.key === '0' || e.key === 'f' || e.key === 'F') fitBoards(ui.active);
 });
+
+arrange();
+setLayout(false);
 })();
