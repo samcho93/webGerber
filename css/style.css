@@ -56,6 +56,10 @@ button { font: inherit; color: inherit; }
 }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: #24402e; color: #fff; }
+.seg.icons button { width: 34px; padding: 0; display: grid; place-items: center; color: var(--text); }
+.seg.icons button.text { width: auto; padding: 0 10px; color: var(--muted); }
+.seg.icons button:hover { background: #2a313b; }
+.panel-label em { font-style: normal; font-weight: 600; letter-spacing: 0; color: var(--accent-2); }
 
 .zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 #zoomLabel { min-width: 52px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }

@@ -25,17 +25,18 @@ class Viewer {
     this.bounds = null;
     this.mode = 'real';          // 'real' | 'layer'
     this.view = 'split';         // 'split' | 'top' | 'bottom'
-    this.linked = true;          // TOP and BOTTOM share one view (pan/zoom)
+    this.linked = true;          // TOP and BOTTOM share one view (pan/zoom/orientation)
     this.dpr = window.devicePixelRatio || 1;
     this.panels = {
       top: this.makePanel('top', false),
       bottom: this.makePanel('bottom', true),
     };
-    // Each panel has a view { s: px per mm, cx, cy: world centre, fitScale }.
-    // While linked both panels point at the same object.
-    const v = { s: 10, cx: 0, cy: 0, fitScale: 0 };
+    // Each panel has a view { s: px per mm, cx, cy: world centre, fitScale, o: orientation }.
+    // o is a 2×2 matrix [m11, m12, m21, m22] (rotation/flip, applied to world coords before
+    // the bottom panel's mirror). While linked both panels point at the same object.
+    const v = { s: 10, cx: 0, cy: 0, fitScale: 0, o: [1, 0, 0, 1] };
     this.panels.top.v = this.panels.bottom.v = v;
-    this.focus = this.panels.top;   // panel last interacted with (zoom buttons, zoom label)
+    this.focus = this.panels.top;   // panel last interacted with (zoom/rotate buttons, zoom label)
     this.off = [document.createElement('canvas'), document.createElement('canvas'), document.createElement('canvas')];
     this.pending = false;
     new ResizeObserver(() => { this.resize(); this.draw(); }).observe(root);
@@ -49,10 +50,10 @@ class Viewer {
   makePanel(side, mirror) {
     const el = document.createElement('div');
     el.className = 'panel';
-    el.innerHTML = `<canvas></canvas><div class="panel-label">${side === 'top' ? 'TOP' : 'BOTTOM'}${mirror ? ' <span>(mirrored)</span>' : ''}</div>`;
+    el.innerHTML = `<canvas></canvas><div class="panel-label">${side === 'top' ? 'TOP' : 'BOTTOM'}${mirror ? ' <span>(mirrored)</span>' : ''}<em class="orient"></em></div>`;
     this.root.appendChild(el);
     const canvas = el.querySelector('canvas');
-    const panel = { side, mirror, el, canvas, ctx: canvas.getContext('2d'), w: 0, h: 0 };
+    const panel = { side, mirror, el, canvas, ctx: canvas.getContext('2d'), w: 0, h: 0, orientEl: el.querySelector('.orient') };
     this.bindInput(panel);
     return panel;
   }
@@ -74,11 +75,13 @@ class Viewer {
     this.linked = on;
     const { top, bottom } = this.panels;
     if (on) top.v = bottom.v = this.focus.v;
-    else bottom.v = { ...top.v };
+    else bottom.v = { ...top.v, o: top.v.o.slice() };
+    this.updateLabels();
     this.draw();
   }
 
   visiblePanels() { return Object.values(this.panels).filter(p => !p.el.hidden); }
+  focused() { return this.focus.el.hidden ? this.visiblePanels()[0] : this.focus; }
 
   resize() {
     for (const p of Object.values(this.panels)) {
@@ -86,6 +89,49 @@ class Viewer {
       p.w = Math.max(1, r.width); p.h = Math.max(1, r.height);
       const W = Math.round(p.w * this.dpr), H = Math.round(p.h * this.dpr);
       if (p.canvas.width !== W || p.canvas.height !== H) { p.canvas.width = W; p.canvas.height = H; }
+    }
+  }
+
+  // ---------- orientation ----------
+  // Linear part world → screen (y up) for a panel: mirror (bottom) ∘ orientation.
+  lin(panel) {
+    const o = panel.v.o;
+    return panel.mirror ? [-o[0], -o[1], o[2], o[3]] : o;
+  }
+
+  // Rotate / flip what the focused panel shows, as seen on screen.
+  // op: 'cw' | 'ccw' | 'flipH' | 'flipV' | 'reset'
+  orient(op) {
+    const panel = this.focused();
+    const v = panel.v;
+    const atFit = v.fitScale && Math.abs(v.s - v.fitScale) < 1e-9 * v.s;
+    if (op === 'reset') v.o = [1, 0, 0, 1];
+    else {
+      const T = { cw: [0, 1, -1, 0], ccw: [0, -1, 1, 0], flipH: [-1, 0, 0, 1], flipV: [1, 0, 0, -1] }[op];
+      // screen op T on panel with mirror P:  P·o' = T·P·o  →  o' = P·T·P·o
+      const P = panel.mirror ? [-1, 0, 0, 1] : [1, 0, 0, 1];
+      v.o = mul(P, mul(T, mul(P, v.o)));
+    }
+    if (atFit) this.fit(this.linked ? undefined : panel);
+    this.updateLabels();
+    this.draw();
+  }
+
+  updateLabels() {
+    for (const p of Object.values(this.panels)) {
+      // on-screen change relative to the panel's default:  P·o·P
+      const P = p.mirror ? [-1, 0, 0, 1] : [1, 0, 0, 1];
+      const m = mul(P, mul(p.v.o, P));
+      const flipped = m[0] * m[3] - m[1] * m[2] < 0;
+      const r = flipped ? mul(m, [-1, 0, 0, 1]) : m;           // strip a horizontal flip
+      const deg = (Math.round(-Math.atan2(r[2], r[0]) * 180 / Math.PI) + 360) % 360;
+      const parts = [];
+      if (flipped && deg === 180) parts.push('상하반전');
+      else {
+        if (deg) parts.push(`${deg}°`);
+        if (flipped) parts.push('좌우반전');
+      }
+      p.orientEl.textContent = parts.length ? ' · ' + parts.join(' · ') : '';
     }
   }
 
@@ -105,7 +151,9 @@ class Viewer {
     if (!b || !isFinite(b.minX)) { this.draw(); return; }
     const bw = Math.max(b.maxX - b.minX, 1e-3), bh = Math.max(b.maxY - b.minY, 1e-3);
     const fitView = (v, w, h) => {
-      v.s = v.fitScale = Math.min(w / bw, h / bh) * 0.88;
+      const [a, c, d, e] = v.o;                           // on-screen extent after rotation
+      const sw = Math.abs(a) * bw + Math.abs(c) * bh, sh = Math.abs(d) * bw + Math.abs(e) * bh;
+      v.s = v.fitScale = Math.min(w / sw, h / sh) * 0.88;
       v.cx = (b.minX + b.maxX) / 2;
       v.cy = (b.minY + b.maxY) / 2;
     };
@@ -117,16 +165,16 @@ class Viewer {
   }
 
   zoomBy(f, panel, sx, sy) {
-    panel = panel || (this.focus.el.hidden ? this.visiblePanels()[0] : this.focus);
+    panel = panel || this.focused();
     const v = panel.v;
     if (sx == null) { sx = panel.w / 2; sy = panel.h / 2; }
-    const m = panel.mirror ? -1 : 1;
-    const wx = v.cx + (sx - panel.w / 2) / (v.s * m);
-    const wy = v.cy - (sy - panel.h / 2) / v.s;
+    const [wx, wy] = this.toWorld(panel, sx, sy);
     const base = v.fitScale || v.s;
     v.s = Math.min(base * 2000, Math.max(base * 0.05, v.s * f));
-    v.cx = wx - (sx - panel.w / 2) / (v.s * m);
-    v.cy = wy + (sy - panel.h / 2) / v.s;
+    // keep the world point under the cursor fixed
+    const [nx, ny] = this.toWorld(panel, sx, sy);
+    v.cx += wx - nx;
+    v.cy += wy - ny;
     this.reportZoom();
     this.draw();
   }
@@ -136,9 +184,22 @@ class Viewer {
     this.onZoom(v.s / (v.fitScale || v.s));
   }
 
+  // Screen-space vector (px, y down) → world vector (mm), via the orthogonal inverse.
+  screenToWorldVec(panel, dx, dy) {
+    const A = this.lin(panel), s = panel.v.s;
+    const u = dx / s, w = -dy / s;
+    return [A[0] * u + A[2] * w, A[1] * u + A[3] * w];
+  }
+
   toWorld(panel, sx, sy) {
-    const v = panel.v, m = panel.mirror ? -1 : 1;
-    return [v.cx + (sx - panel.w / 2) / (v.s * m), v.cy - (sy - panel.h / 2) / v.s];
+    const [dx, dy] = this.screenToWorldVec(panel, sx - panel.w / 2, sy - panel.h / 2);
+    return [panel.v.cx + dx, panel.v.cy + dy];
+  }
+
+  pan(panel, dx, dy) {
+    const [wx, wy] = this.screenToWorldVec(panel, dx, dy);
+    panel.v.cx -= wx;
+    panel.v.cy -= wy;
   }
 
   // ---------- input ----------
@@ -174,17 +235,14 @@ class Viewer {
       if (!prev) return;
       const cur = { x: e.clientX, y: e.clientY };
       pts.set(e.pointerId, cur);
-      const v = panel.v, m = panel.mirror ? -1 : 1;
       if (pts.size === 1) {
-        v.cx -= (cur.x - prev.x) / (v.s * m);
-        v.cy += (cur.y - prev.y) / v.s;
+        this.pan(panel, cur.x - prev.x, cur.y - prev.y);
         this.draw();
       } else if (pts.size === 2 && pinch) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        v.cx -= (mx - pinch.mx) / (v.s * m);
-        v.cy += (my - pinch.my) / v.s;
+        this.pan(panel, mx - pinch.mx, my - pinch.my);
         this.zoomBy(d / (pinch.d || d), panel, mx - r.left, my - r.top);
         pinch = { d, mx, my };
       }
@@ -210,8 +268,13 @@ class Viewer {
   }
 
   worldMatrix(panel) {
-    const { s, cx, cy } = panel.v, d = this.dpr, m = panel.mirror ? -1 : 1;
-    return [s * m * d, 0, 0, -s * d, (panel.w / 2 - cx * s * m) * d, (panel.h / 2 + cy * s) * d];
+    const { s, cx, cy } = panel.v, d = this.dpr;
+    const [a11, a12, a21, a22] = this.lin(panel);
+    return [
+      s * a11 * d, -s * a21 * d, s * a12 * d, -s * a22 * d,
+      (panel.w / 2 - s * (a11 * cx + a12 * cy)) * d,
+      (panel.h / 2 + s * (a21 * cx + a22 * cy)) * d,
+    ];
   }
 
   prepOff(i, panel) {
@@ -338,6 +401,11 @@ class Viewer {
       this.blit(ctx, this.layerToOff(0, panel, l, l.color), alpha);
     }
   }
+}
+
+// 2×2 matrix product, matrices as [m11, m12, m21, m22]
+function mul(a, b) {
+  return [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3]];
 }
 
 function sideMatches(type, side) {

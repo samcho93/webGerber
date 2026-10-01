@@ -39,6 +39,14 @@
       <span>TOP·BOTTOM 연동</span>
     </button>
 
+    <div class="seg icons" id="orientSeg" role="group" aria-label="회전 / 반전">
+      <button data-op="ccw" title="왼쪽으로 90° 회전 (Shift+R)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.34-5.66"/><path d="M4 4v5h5"/></svg></button>
+      <button data-op="cw" title="오른쪽으로 90° 회전 (R)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>
+      <button data-op="flipH" title="좌우 반전 (H)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18" stroke-dasharray="2 3"/><path d="M9 7 4 17h5z"/><path d="m15 7 5 10h-5z"/></svg></button>
+      <button data-op="flipV" title="상하 반전 (V)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18" stroke-dasharray="2 3"/><path d="M7 9 17 4v5z"/><path d="m7 15 10 5v-5z"/></svg></button>
+      <button data-op="reset" class="text" title="회전·반전 원래대로 (Shift+O)">원위치</button>
+    </div>
+
     <div class="seg" id="modeSeg" role="group" aria-label="표시 방식">
       <button data-mode="real" class="on">실사</button>
       <button data-mode="layer">레이어 색상</button>

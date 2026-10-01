@@ -382,6 +382,12 @@ segment('#viewSeg', 'view', v => {
 });
 
 $('#linkBtn').addEventListener('click', () => spaces[0].setLinked(!spaces[0].linked));
+
+// rotate / flip the panel last clicked in the active screen
+$('#orientSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) act().orient(b.dataset.op);
+});
 segment('#modeSeg', 'mode', m => spaces.forEach(w => w.viewer.setMode(m)));
 
 $('#wsTabs').addEventListener('click', e => {
@@ -401,6 +407,11 @@ window.addEventListener('keydown', e => {
   if (e.key === '+' || e.key === '=') act().zoomBy(1.25);
   else if (e.key === '-' || e.key === '_') act().zoomBy(0.8);
   else if (e.key === '0' || e.key === 'f' || e.key === 'F') act().fit();
+  else if (e.key === 'r') act().orient('cw');
+  else if (e.key === 'R') act().orient('ccw');
+  else if (e.key === 'h' || e.key === 'H') act().orient('flipH');
+  else if (e.key === 'v' || e.key === 'V') act().orient('flipV');
+  else if (e.key === 'O') act().orient('reset');
 });
 
 arrange();
