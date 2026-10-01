@@ -8,12 +8,13 @@
 //
 // Every solid shape is wound counter-clockwise (positive area) and every hole
 // clockwise, so one nonzero Path2D per block is a correct union.
+(() => {
+const { Bounds, PolarityBlocks, arcPoints, polyArea } = WG;
 
-import { Bounds, PolarityBlocks, arcPoints, polyArea } from './geom.js';
 
 const TAU = Math.PI * 2;
 
-export function parseGerber(text, opts = {}) {
+function parseGerber(text, opts = {}) {
   const st = {
     fmt: { zero: 'L', int: 3, dec: 6 },
     unit: 1,                 // mm per file unit
@@ -571,7 +572,7 @@ function rotPoly(p, deg) {
 }
 
 // Add a closed polygon. Orientation is normalised to CCW unless keepWinding.
-export function addPoly(path, p, keepWinding = false) {
+function addPoly(path, p, keepWinding = false) {
   if (p.length < 6) return;
   if (!keepWinding && polyArea(p) < 0) p = reverseFlat(p);
   path.moveTo(p[0], p[1]);
@@ -638,3 +639,6 @@ function evalExpr(src, vars) {
   const v = expr();
   return isFinite(v) ? v : 0;
 }
+
+Object.assign(WG, { parseGerber, addPoly });
+})();

@@ -1,6 +1,6 @@
 // Layer type detection and board outline construction.
-
-export const LAYER_TYPES = {
+(() => {
+const LAYER_TYPES = {
   'top-silk':      { label: 'Top Silkscreen',    side: 'top',    order: 10, color: '#f5f5f0' },
   'top-paste':     { label: 'Top Paste',         side: 'top',    order: 11, color: '#b8bcc4' },
   'top-mask':      { label: 'Top Solder Mask',   side: 'top',    order: 12, color: '#1e8a46' },
@@ -32,7 +32,7 @@ const EXT_MAP = {
 };
 
 // Returns 'gerber' | 'drill' | null
-export function detectFormat(name, text) {
+function detectFormat(name, text) {
   const head = text.slice(0, 4000);
   if (/^\s*(;[^\n]*\n\s*)*M48/m.test(head) && !/%FS/.test(head)) return 'drill';
   if (/%FS[LTD]?[AI]?/.test(head) || /%MO(MM|IN)/.test(head) || /%ADD\d+/.test(text.slice(0, 50000))) return 'gerber';
@@ -40,7 +40,7 @@ export function detectFormat(name, text) {
   return null;
 }
 
-export function detectType(name, text, format) {
+function detectType(name, text, format) {
   if (format === 'drill') return 'drill';
 
   // Gerber X2 file function (also as G04 #@! comment)
@@ -82,11 +82,11 @@ export function detectType(name, text, format) {
   return 'other';
 }
 
-export function innerColor(index) { return INNER_COLORS[index % INNER_COLORS.length]; }
+function innerColor(index) { return INNER_COLORS[index % INNER_COLORS.length]; }
 
 // ---------- board outline ----------
 // Chains the outline layer's draw segments into closed loops.
-export function buildBoardShape(segments) {
+function buildBoardShape(segments) {
   if (!segments || !segments.length) return null;
   const tol = 0.05;
   const segs = segments.filter(s => s.length >= 4).map(s => ({ p: s, used: false }));
@@ -132,3 +132,6 @@ export function buildBoardShape(segments) {
   }
   return { path, bounds: { minX, minY, maxX, maxY } };
 }
+
+Object.assign(WG, { LAYER_TYPES, detectFormat, detectType, innerColor, buildBoardShape });
+})();

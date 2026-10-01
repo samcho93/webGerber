@@ -1,8 +1,5 @@
-import { parseGerber } from './gerber.js';
-import { parseExcellon } from './excellon.js';
-import { LAYER_TYPES, detectFormat, detectType, buildBoardShape, innerColor } from './layers.js';
-import { unionBounds } from './geom.js';
-import { Viewer } from './viewer.js';
+(() => {
+const { parseGerber, parseExcellon, LAYER_TYPES, detectFormat, detectType, buildBoardShape, innerColor, unionBounds, Viewer } = WG;
 
 const $ = sel => document.querySelector(sel);
 
@@ -38,6 +35,7 @@ async function loadFiles(fileList) {
 }
 
 async function readZip(buf, depth = 0) {
+  if (!window.JSZip) throw new Error('ZIP 라이브러리(JSZip)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
   const zip = await JSZip.loadAsync(buf);
   const out = [];
   for (const entry of Object.values(zip.files)) {
@@ -186,7 +184,7 @@ $('#sampleBtn').addEventListener('click', async () => {
     state.fileName = 'sample-board.zip';
     await buildLayers(entries);
   } catch (e) {
-    alert('샘플을 불러오지 못했습니다: ' + e.message);
+    alert('샘플을 불러오지 못했습니다: ' + e.message + (location.protocol === 'file:' ? ' (로컬 파일로 열면 샘플은 지원되지 않습니다. ZIP 열기를 사용하세요.)' : ''));
   } finally {
     setBusy(null);
   }
@@ -227,3 +225,4 @@ window.addEventListener('keydown', e => {
   else if (e.key === '-' || e.key === '_') viewer.zoomBy(0.8);
   else if (e.key === '0' || e.key === 'f' || e.key === 'F') viewer.fit();
 });
+})();

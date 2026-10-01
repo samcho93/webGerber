@@ -77,7 +77,19 @@
     <span class="hint">휠: 확대/축소 · 드래그: 이동 · 더블클릭: 맞춤</span>
   </footer>
 
+  <script>
+    // Namespace shared by the scripts below. Classic scripts (not ES modules) so the
+    // viewer also works when index.html is opened directly from disk (file://).
+    window.WG = {};
+    // Never let a dropped file fall through to the browser's download/open behaviour.
+    ['dragover', 'drop'].forEach(t => window.addEventListener(t, e => e.preventDefault()));
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" src="js/app.js"></script>
+  <script src="js/geom.js"></script>
+  <script src="js/layers.js"></script>
+  <script src="js/gerber.js"></script>
+  <script src="js/excellon.js"></script>
+  <script src="js/viewer.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

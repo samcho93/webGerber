@@ -1,6 +1,7 @@
 // Canvas renderer with synced pan/zoom across TOP / BOTTOM panels.
+(() => {
+const { LAYER_TYPES } = WG;
 
-import { LAYER_TYPES } from './layers.js';
 
 const COL = {
   bg: '#14171c',
@@ -14,7 +15,7 @@ const COL = {
   outline: '#f2d33a',
 };
 
-export class Viewer {
+class Viewer {
   constructor(root, { onCursor, onZoom } = {}) {
     this.root = root;
     this.onCursor = onCursor || (() => {});
@@ -322,3 +323,6 @@ function layerRank(type, side) {
   const i = RANK.indexOf(k);
   return i < 0 ? 99 : i;
 }
+
+Object.assign(WG, { Viewer });
+})();

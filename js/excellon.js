@@ -1,8 +1,9 @@
 // Excellon (NC drill) parser → same layer structure as the Gerber parser.
+(() => {
+const { Bounds, PolarityBlocks } = WG;
 
-import { Bounds, PolarityBlocks } from './geom.js';
 
-export function parseExcellon(text) {
+function parseExcellon(text) {
   const st = {
     unit: 25.4,          // default inch
     zero: 'TZ',          // TZ = trailing zeros kept (leading suppressed)
@@ -128,3 +129,6 @@ export function parseExcellon(text) {
     return (neg ? -v : v) * st.unit;
   }
 }
+
+Object.assign(WG, { parseExcellon });
+})();

@@ -1,8 +1,8 @@
 // Shared geometry helpers.
-
+(() => {
 const TAU = Math.PI * 2;
 
-export class Bounds {
+class Bounds {
   constructor() { this.minX = this.minY = Infinity; this.maxX = this.maxY = -Infinity; }
   add(x, y, pad = 0) {
     if (x - pad < this.minX) this.minX = x - pad;
@@ -13,7 +13,7 @@ export class Bounds {
   value() { return { minX: this.minX, minY: this.minY, maxX: this.maxX, maxY: this.maxY }; }
 }
 
-export function unionBounds(list) {
+function unionBounds(list) {
   const b = new Bounds();
   for (const v of list) {
     if (!v || !isFinite(v.minX)) continue;
@@ -23,7 +23,7 @@ export function unionBounds(list) {
 }
 
 // Sequence of polarity blocks. Consecutive shapes of the same polarity share a block.
-export class PolarityBlocks {
+class PolarityBlocks {
   constructor() { this.blocks = []; this.fresh = false; }
   get(dark) {
     const last = this.blocks[this.blocks.length - 1];
@@ -37,7 +37,7 @@ export class PolarityBlocks {
 }
 
 // Tessellate an arc into a flat [x,y,...] list (start and end included).
-export function arcPoints(cx, cy, r, a0, a1, ccw) {
+function arcPoints(cx, cy, r, a0, a1, ccw) {
   let s = ccw ? a1 - a0 : a0 - a1;
   if (s < -1e-12) s += TAU * Math.ceil(-s / TAU);
   const n = Math.max(2, Math.ceil((s / TAU) * 72 * Math.min(4, Math.max(1, Math.sqrt(r)))));
@@ -49,7 +49,7 @@ export function arcPoints(cx, cy, r, a0, a1, ccw) {
   return out;
 }
 
-export function polyArea(p) {
+function polyArea(p) {
   let a = 0;
   const n = p.length;
   for (let k = 0; k < n; k += 2) {
@@ -58,3 +58,6 @@ export function polyArea(p) {
   }
   return a / 2;
 }
+
+Object.assign(WG, { Bounds, unionBounds, PolarityBlocks, arcPoints, polyArea });
+})();
