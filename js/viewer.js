@@ -25,12 +25,17 @@ class Viewer {
     this.bounds = null;
     this.mode = 'real';          // 'real' | 'layer'
     this.view = 'split';         // 'split' | 'top' | 'bottom'
-    this.s = 10; this.cx = 0; this.cy = 0;
+    this.linked = true;          // TOP and BOTTOM share one view (pan/zoom)
     this.dpr = window.devicePixelRatio || 1;
     this.panels = {
       top: this.makePanel('top', false),
       bottom: this.makePanel('bottom', true),
     };
+    // Each panel has a view { s: px per mm, cx, cy: world centre, fitScale }.
+    // While linked both panels point at the same object.
+    const v = { s: 10, cx: 0, cy: 0, fitScale: 0 };
+    this.panels.top.v = this.panels.bottom.v = v;
+    this.focus = this.panels.top;   // panel last interacted with (zoom buttons, zoom label)
     this.off = [document.createElement('canvas'), document.createElement('canvas'), document.createElement('canvas')];
     this.pending = false;
     new ResizeObserver(() => { this.resize(); this.draw(); }).observe(root);
@@ -57,10 +62,21 @@ class Viewer {
     this.panels.top.el.hidden = this.view === 'bottom';
     this.panels.bottom.el.hidden = this.view === 'top';
     this.root.dataset.view = this.view;
+    if (this.focus.el.hidden) this.focus = this.visiblePanels()[0];
     this.resize();
     this.draw();
   }
   setMode(m) { this.mode = m; this.draw(); }
+
+  // Link / unlink the TOP and BOTTOM views. Linking adopts the focused panel's view.
+  setLinked(on) {
+    if (on === this.linked) return;
+    this.linked = on;
+    const { top, bottom } = this.panels;
+    if (on) top.v = bottom.v = this.focus.v;
+    else bottom.v = { ...top.v };
+    this.draw();
+  }
 
   visiblePanels() { return Object.values(this.panels).filter(p => !p.el.hidden); }
 
@@ -81,38 +97,48 @@ class Viewer {
     this.fit();
   }
 
-  fit() {
+  // Fit the board. Linked: one view sized for the smaller panel. Unlinked: the given
+  // panel only, or every visible panel to its own size when none is given.
+  fit(panel) {
     const b = this.board ? this.board.bounds : this.bounds;
     this.resize();
     if (!b || !isFinite(b.minX)) { this.draw(); return; }
-    const ps = this.visiblePanels();
-    const w = Math.min(...ps.map(p => p.w)), h = Math.min(...ps.map(p => p.h));
     const bw = Math.max(b.maxX - b.minX, 1e-3), bh = Math.max(b.maxY - b.minY, 1e-3);
-    this.s = Math.min(w / bw, h / bh) * 0.88;
-    this.cx = (b.minX + b.maxX) / 2;
-    this.cy = (b.minY + b.maxY) / 2;
-    this.fitScale = this.s;
-    this.onZoom(1);
+    const fitView = (v, w, h) => {
+      v.s = v.fitScale = Math.min(w / bw, h / bh) * 0.88;
+      v.cx = (b.minX + b.maxX) / 2;
+      v.cy = (b.minY + b.maxY) / 2;
+    };
+    const ps = this.visiblePanels();
+    if (this.linked) fitView(ps[0].v, Math.min(...ps.map(p => p.w)), Math.min(...ps.map(p => p.h)));
+    else for (const p of panel ? [panel] : ps) fitView(p.v, p.w, p.h);
+    this.reportZoom();
     this.draw();
   }
 
   zoomBy(f, panel, sx, sy) {
-    panel = panel || this.visiblePanels()[0];
+    panel = panel || (this.focus.el.hidden ? this.visiblePanels()[0] : this.focus);
+    const v = panel.v;
     if (sx == null) { sx = panel.w / 2; sy = panel.h / 2; }
     const m = panel.mirror ? -1 : 1;
-    const wx = this.cx + (sx - panel.w / 2) / (this.s * m);
-    const wy = this.cy - (sy - panel.h / 2) / this.s;
-    const base = this.fitScale || this.s;
-    this.s = Math.min(base * 2000, Math.max(base * 0.05, this.s * f));
-    this.cx = wx - (sx - panel.w / 2) / (this.s * m);
-    this.cy = wy + (sy - panel.h / 2) / this.s;
-    this.onZoom(this.s / base);
+    const wx = v.cx + (sx - panel.w / 2) / (v.s * m);
+    const wy = v.cy - (sy - panel.h / 2) / v.s;
+    const base = v.fitScale || v.s;
+    v.s = Math.min(base * 2000, Math.max(base * 0.05, v.s * f));
+    v.cx = wx - (sx - panel.w / 2) / (v.s * m);
+    v.cy = wy + (sy - panel.h / 2) / v.s;
+    this.reportZoom();
     this.draw();
   }
 
+  reportZoom() {
+    const v = this.focus.v;
+    this.onZoom(v.s / (v.fitScale || v.s));
+  }
+
   toWorld(panel, sx, sy) {
-    const m = panel.mirror ? -1 : 1;
-    return [this.cx + (sx - panel.w / 2) / (this.s * m), this.cy - (sy - panel.h / 2) / this.s];
+    const v = panel.v, m = panel.mirror ? -1 : 1;
+    return [v.cx + (sx - panel.w / 2) / (v.s * m), v.cy - (sy - panel.h / 2) / v.s];
   }
 
   // ---------- input ----------
@@ -120,15 +146,18 @@ class Viewer {
     const c = panel.canvas;
     const pts = new Map();
     let pinch = null;
+    const focus = () => { if (this.focus !== panel) { this.focus = panel; this.reportZoom(); } };
 
     c.addEventListener('wheel', e => {
       e.preventDefault();
+      focus();
       const r = c.getBoundingClientRect();
       const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
       this.zoomBy(Math.pow(1.0015, -dy), panel, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
 
     c.addEventListener('pointerdown', e => {
+      focus();
       try { c.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       c.classList.add('grabbing');
@@ -145,17 +174,17 @@ class Viewer {
       if (!prev) return;
       const cur = { x: e.clientX, y: e.clientY };
       pts.set(e.pointerId, cur);
-      const m = panel.mirror ? -1 : 1;
+      const v = panel.v, m = panel.mirror ? -1 : 1;
       if (pts.size === 1) {
-        this.cx -= (cur.x - prev.x) / (this.s * m);
-        this.cy += (cur.y - prev.y) / this.s;
+        v.cx -= (cur.x - prev.x) / (v.s * m);
+        v.cy += (cur.y - prev.y) / v.s;
         this.draw();
       } else if (pts.size === 2 && pinch) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        this.cx -= (mx - pinch.mx) / (this.s * m);
-        this.cy += (my - pinch.my) / this.s;
+        v.cx -= (mx - pinch.mx) / (v.s * m);
+        v.cy += (my - pinch.my) / v.s;
         this.zoomBy(d / (pinch.d || d), panel, mx - r.left, my - r.top);
         pinch = { d, mx, my };
       }
@@ -167,7 +196,7 @@ class Viewer {
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
-    c.addEventListener('dblclick', () => this.fit());
+    c.addEventListener('dblclick', () => { focus(); this.fit(panel); });
   }
 
   // ---------- rendering ----------
@@ -181,8 +210,8 @@ class Viewer {
   }
 
   worldMatrix(panel) {
-    const d = this.dpr, s = this.s, m = panel.mirror ? -1 : 1;
-    return [s * m * d, 0, 0, -s * d, (panel.w / 2 - this.cx * s * m) * d, (panel.h / 2 + this.cy * s) * d];
+    const { s, cx, cy } = panel.v, d = this.dpr, m = panel.mirror ? -1 : 1;
+    return [s * m * d, 0, 0, -s * d, (panel.w / 2 - cx * s * m) * d, (panel.h / 2 + cy * s) * d];
   }
 
   prepOff(i, panel) {
@@ -204,7 +233,7 @@ class Viewer {
     ctx.setTransform(...this.worldMatrix(panel));
     ctx.fillStyle = ctx.strokeStyle = color;
     ctx.lineCap = ctx.lineJoin = 'round';
-    const minW = 1 / (this.s * this.dpr) * 1.2;
+    const minW = 1 / (panel.v.s * this.dpr) * 1.2;
     for (const b of layer.data.blocks) {
       ctx.globalCompositeOperation = b.dark ? 'source-over' : 'destination-out';
       ctx.fill(b.nz, 'nonzero');

@@ -9,6 +9,7 @@ const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc
 const ui = {
   dual: false,            // two boards side by side
   view: 'split',          // TOP + BOTTOM | TOP | BOTTOM
+  linked: true,           // TOP and BOTTOM panels pan/zoom together
   active: null,           // Workspace shown in the sidebar
 };
 
@@ -360,6 +361,16 @@ segment('#viewSeg', 'view', v => {
   ui.view = v;
   arrange();
   for (const w of spaces) w.viewer.setView(v);
+  $('#linkBtn').disabled = v !== 'split';   // only meaningful with both panels shown
+});
+
+$('#linkBtn').addEventListener('click', () => {
+  ui.linked = !ui.linked;
+  const b = $('#linkBtn');
+  b.classList.toggle('on', ui.linked);
+  b.setAttribute('aria-pressed', ui.linked);
+  b.querySelector('span').textContent = ui.linked ? 'TOP·BOTTOM 연동' : 'TOP·BOTTOM 독립';
+  for (const w of spaces) w.viewer.setLinked(ui.linked);
 });
 segment('#modeSeg', 'mode', m => spaces.forEach(w => w.viewer.setMode(m)));
 

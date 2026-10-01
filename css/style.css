@@ -43,6 +43,10 @@ button { font: inherit; color: inherit; }
 .btn:hover { border-color: #3a4350; background: #242a33; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .btn.primary:hover { background: #36b465; }
+.btn.toggle.on { background: #24402e; border-color: #2f6b45; color: #fff; }
+.btn.toggle.on .cut { display: none; }
+.btn:disabled { opacity: .45; cursor: default; }
+
 .btn.icon { width: 30px; padding: 0; justify-content: center; font-size: 16px; }
 
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
