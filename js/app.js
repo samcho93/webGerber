@@ -8,7 +8,6 @@ const SKIP_EXT = /\.(pdf|png|jpe?g|bmp|svg|html?|xml|json|gbrjob|csv|pos|rpt|ipc
 
 const ui = {
   dual: false,            // two boards side by side
-  sync: true,             // link pan/zoom between A and B
   view: 'split',          // TOP + BOTTOM | TOP | BOTTOM
   active: null,           // Workspace shown in the sidebar
 };
@@ -27,9 +26,7 @@ class Workspace {
     this.viewer = new Viewer(this.el.querySelector('.panels'), {
       onCursor: (x, y) => { $('#stCursor').textContent = `${ui.dual ? this.tag + '  ' : ''}X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`; },
       onZoom: z => { this.zoom = z; if (ui.active === this) $('#zoomLabel').textContent = `${Math.round(z * 100)}%`; },
-      onViewChange: v => syncFrom(this, v),
     });
-    this.viewer.requestFit = () => fitBoards(this);
 
     this.el.addEventListener('pointerdown', () => activate(this), true);
     this.el.querySelector('.drop').addEventListener('click', () => { activate(this); openPicker(); });
@@ -112,16 +109,7 @@ class Workspace {
     const bounds = unionBounds(layers.filter(l => l.data && l.type !== 'other').map(l => l.data.bounds));
     this.boardBounds = board ? board.bounds : bounds;
     if (fit) {
-      this.suppressSync = true;   // don't push this board's fit onto the other one
       this.viewer.setData(layers, board, bounds);
-      this.suppressSync = false;
-      // With both boards loaded and sync on, align them; boards that don't overlap
-      // at all are different projects, so sync is switched off instead.
-      const other = otherOf(this);
-      if (ui.dual && ui.sync && other.layers.length) {
-        if (overlaps(this.boardBounds, other.boardBounds)) fitBoards(this);
-        else setSync(false);
-      }
     } else {
       Object.assign(this.viewer, { layers, board, bounds });
       this.viewer.draw();
@@ -227,36 +215,6 @@ function decodeText(data) { return new TextDecoder('utf-8').decode(data); }
 
 // ---------- workspaces / layout ----------
 const spaces = [new Workspace(0), new Workspace(1)];
-const otherOf = ws => spaces[1 - ws.index];
-
-function syncFrom(ws, v) {
-  if (!ui.dual || !ui.sync || ws.suppressSync) return;
-  const o = otherOf(ws);
-  if (o.layers.length) o.viewer.setViewState(v);
-}
-
-function bothLoaded() { return spaces.every(w => w.layers.length); }
-
-function overlaps(a, b) {
-  return a && b && a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
-}
-
-// Fit: synced pair → both to the union of the two boards at one scale; otherwise just ws.
-function fitBoards(ws) {
-  if (ui.dual && ui.sync && bothLoaded()) {
-    const u = unionBounds(spaces.map(w => w.boardBounds));
-    for (const w of spaces) { w.suppressSync = true; w.viewer.fit(u); w.suppressSync = false; }
-    syncFrom(ws, ws.viewer);   // slots can differ by a pixel; make the views identical
-  } else {
-    ws.viewer.fit();
-  }
-}
-
-function setSync(on) {
-  ui.sync = on;
-  $('#syncView').checked = on;
-  if (on && ui.active.layers.length) fitBoards(ui.active);
-}
 
 function activate(ws) {
   if (ui.active === ws) return;
@@ -272,14 +230,10 @@ function setLayout(dual) {
   $('#slots').classList.toggle('dual', dual);
   spaces[1].el.hidden = !dual;
   $('#wsTabs').hidden = !dual;
-  $('#syncWrap').hidden = !dual;
   arrange();
   if (!dual) activate(spaces[0]);
-  // re-fit loaded boards to their new slot size
-  requestAnimationFrame(() => {
-    if (dual && ui.sync && bothLoaded()) fitBoards(ui.active);
-    else for (const w of spaces) if (w.layers.length) { w.suppressSync = true; w.viewer.fit(); w.suppressSync = false; }
-  });
+  // re-fit loaded boards to their new slot size (each screen pans/zooms independently)
+  requestAnimationFrame(() => { for (const w of spaces) if (w.layers.length) w.viewer.fit(); });
   updateSidebar();
 }
 
@@ -413,12 +367,11 @@ $('#wsTabs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (b) activate(spaces[+b.dataset.ws]);
 });
-$('#syncView').addEventListener('change', e => setSync(e.target.checked));
 
 const act = () => ui.active.viewer;
 $('#zoomIn').addEventListener('click', () => act().zoomBy(1.25));
 $('#zoomOut').addEventListener('click', () => act().zoomBy(0.8));
-$('#zoomFit').addEventListener('click', () => fitBoards(ui.active));
+$('#zoomFit').addEventListener('click', () => act().fit());
 $('#allOn').addEventListener('click', () => { ui.active.layers.forEach(l => l.visible = true); updateSidebar(); act().draw(); });
 $('#allOff').addEventListener('click', () => { ui.active.layers.forEach(l => l.visible = false); updateSidebar(); act().draw(); });
 
@@ -426,7 +379,7 @@ window.addEventListener('keydown', e => {
   if (e.target.closest('input, select, textarea')) return;
   if (e.key === '+' || e.key === '=') act().zoomBy(1.25);
   else if (e.key === '-' || e.key === '_') act().zoomBy(0.8);
-  else if (e.key === '0' || e.key === 'f' || e.key === 'F') fitBoards(ui.active);
+  else if (e.key === '0' || e.key === 'f' || e.key === 'F') act().fit();
 });
 
 arrange();

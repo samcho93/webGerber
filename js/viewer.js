@@ -1,4 +1,4 @@
-// Canvas renderer with synced pan/zoom across TOP / BOTTOM panels.
+// Canvas renderer; the TOP / BOTTOM panels of one viewer share pan/zoom.
 (() => {
 const { LAYER_TYPES } = WG;
 
@@ -16,11 +16,10 @@ const COL = {
 };
 
 class Viewer {
-  constructor(root, { onCursor, onZoom, onViewChange } = {}) {
+  constructor(root, { onCursor, onZoom } = {}) {
     this.root = root;
     this.onCursor = onCursor || (() => {});
     this.onZoom = onZoom || (() => {});
-    this.onViewChange = onViewChange || (() => {});   // pan/zoom changed by the user
     this.layers = [];
     this.board = null;           // { path, bounds }
     this.bounds = null;
@@ -82,9 +81,8 @@ class Viewer {
     this.fit();
   }
 
-  // Fit the board (or the given bounds) to the panels.
-  fit(bounds) {
-    const b = bounds || (this.board ? this.board.bounds : this.bounds);
+  fit() {
+    const b = this.board ? this.board.bounds : this.bounds;
     this.resize();
     if (!b || !isFinite(b.minX)) { this.draw(); return; }
     const ps = this.visiblePanels();
@@ -95,17 +93,6 @@ class Viewer {
     this.cy = (b.minY + b.maxY) / 2;
     this.fitScale = this.s;
     this.onZoom(1);
-    this.draw();
-    this.onViewChange(this);
-  }
-
-  // Double-click / fit request; the app may override this (e.g. to fit two synced boards).
-  requestFit() { this.fit(); }
-
-  // Adopt another viewer's pan/zoom (view sync). Does not re-emit onViewChange.
-  setViewState({ s, cx, cy }) {
-    this.s = s; this.cx = cx; this.cy = cy;
-    this.onZoom(this.s / (this.fitScale || this.s));
     this.draw();
   }
 
@@ -121,7 +108,6 @@ class Viewer {
     this.cy = wy + (sy - panel.h / 2) / this.s;
     this.onZoom(this.s / base);
     this.draw();
-    this.onViewChange(this);
   }
 
   toWorld(panel, sx, sy) {
@@ -164,7 +150,6 @@ class Viewer {
         this.cx -= (cur.x - prev.x) / (this.s * m);
         this.cy += (cur.y - prev.y) / this.s;
         this.draw();
-        this.onViewChange(this);
       } else if (pts.size === 2 && pinch) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -182,7 +167,7 @@ class Viewer {
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
-    c.addEventListener('dblclick', () => this.requestFit());
+    c.addEventListener('dblclick', () => this.fit());
   }
 
   // ---------- rendering ----------

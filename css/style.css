@@ -53,10 +53,6 @@ button { font: inherit; color: inherit; }
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: #24402e; color: #fff; }
 
-.sync { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
-.sync[hidden] { display: none; }
-.sync input { accent-color: var(--accent); margin: 0; }
-
 .zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 #zoomLabel { min-width: 52px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 
