@@ -91,6 +91,25 @@ class Workspace {
     }
   }
 
+  // ?zip=<url>: open an archive from another page (e.g. PCB Agent's fabrication zip on the local bridge)
+  async loadUrl(url) {
+    const busy = t => this.busy(t);
+    busy('거버 불러오는 중…');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const u = new URL(url, location.href);
+      const name = (u.searchParams.get('path') || u.pathname).split('/').pop() || 'gerber.zip';
+      const data = new Uint8Array(await res.arrayBuffer());
+      const entries = archiveKind(data, name) ? await readArchive(data, name, busy) : [{ name, text: decodeText(data) }];
+      await this.buildLayers(entries, name);
+    } catch (e) {
+      alert('거버를 불러오지 못했습니다: ' + e.message + '\n' + url);
+    } finally {
+      busy(null);
+    }
+  }
+
   async buildLayers(entries, fileName) {
     const layers = [];
     let id = 0;
@@ -416,4 +435,7 @@ window.addEventListener('keydown', e => {
 
 arrange();
 setLayout(false);
+
+const zipParam = new URLSearchParams(location.search).get('zip');
+if (zipParam && /^https?:\/\//i.test(zipParam)) ui.active.loadUrl(zipParam);
 })();
